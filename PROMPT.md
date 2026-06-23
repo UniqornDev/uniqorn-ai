@@ -63,23 +63,29 @@ Rules:
 
 ## Sandbox Restrictions (CRITICAL)
 
-On shared plans, code is **rejected** if it contains ANY of these keywords — even as substrings
-(e.g., `File` blocks `FileManager`, `Thread` blocks `ThreadLocal`).
+On the hosted **trial** and **personal** plans, an endpoint that uses any of the types below is
+rejected at deploy with `422 Use of restricted type: <class>`. (Team, enterprise, custom, and
+self-hosted instances have no restriction.) Use the framework equivalents instead: `Storage` for
+files, `Http` for networking, `Api.defer(runnable)` for async, `Api.atomic(runnable)` for locking,
+`Api.env(name)` for config, `State` for shared memory.
 
-| Category | Keywords |
-|----------|----------|
-| Reflection | `reflect` `Method` `Field` `Constructor` `Modifier` `AccessibleObject` `InvocationHandler` `Proxy` `Class` `ClassLoader` `Unsafe` `ServiceLoader` `Module` `com.sun` `Native` `JNI` `MXBean` `SecurityManager` `Permission` `InitialContext` `JNDI` `RMI` `AccessController` `Instrumentation` `MethodHandle` `jdk` |
-| Runtime | `Runtime` `Shutdown` `ShutdownHook` `ProcessBuilder` `ProcessHandle` `System` |
-| File System | `File` `Files` `Path` `Paths` `FileSystem` `RandomAccessFile` `Console` `InputStream` `OutputStream` |
-| Threading | `Thread` `ThreadLocal` `Executor` `Executors` `Callable` `Future` `ForkJoinPool` `Semaphore` `Mutex` `ReentrantLock` `Lock` `Condition` `CyclicBarrier` `CountDownLatch` |
-| Network | `Socket` `Datagram` `Multicast` `Channel` `URL` `URI` |
-| Scripting | `ScriptEngine` `Interpreter` `GroovyShell` `JavaScript` `JavaCompiler` `ToolProvider` `FileManager` |
-| Serialization | `Serializable` `Externalizable` `readObject` `writeObject` `resolveClass` |
-| Language | `goto` `invoke` `eval` |
-| Framework | `.jit` `.manager` `Registry` `Factory` `Manager` `Item` `Entity` `Template` |
+**Blocked packages** — every class under these prefixes:
+`java.lang.reflect.` `java.lang.foreign.` `java.lang.instrument.` `java.lang.management.`
+`java.lang.module.` · `java.nio.file.` `java.nio.channels.` `java.net.` · `sun.` `com.sun.` `jdk.` ·
+`javax.script.` `javax.tools.` `javax.management.` `javax.naming.` `java.rmi.` `org.graalvm.` ·
+`aeonics.jit.` `aeonics.manager.` `aeonics.template.`
 
-Use framework equivalents: `Storage` for files, `Http` for networking,
-`Api.defer(runnable)` for async, `Api.atomic(runnable)` for locking, `Api.env(name)` for config.
+**Blocked classes** — exact match:
+
+| Group | Classes |
+|-------|---------|
+| Loading & modules | `java.lang.ClassLoader` `java.lang.Module` `java.lang.ModuleLayer` `java.util.ServiceLoader` |
+| Security | `java.lang.SecurityManager` `java.security.AccessController` `java.security.Permission` `java.security.ProtectionDomain` |
+| Process | `java.lang.Runtime` `java.lang.Process` `java.lang.ProcessBuilder` `java.lang.ProcessHandle` |
+| Files | `java.io.File` `java.io.FileInputStream` `java.io.FileOutputStream` `java.io.FileReader` `java.io.FileWriter` `java.io.RandomAccessFile` `java.io.Console` |
+| Serialization | `java.io.ObjectInputStream` `java.io.ObjectOutputStream` `java.io.Serializable` `java.io.Externalizable` |
+| Threads | `java.lang.Thread` `java.lang.ThreadLocal` `java.lang.ThreadGroup` |
+| Aeonics internals | `aeonics.entity.Registry` `aeonics.entity.Entity` `aeonics.Plugin` |
 
 ## Working with Data and JSON
 
@@ -171,7 +177,7 @@ Every endpoint should include all four fields for AI agent discovery:
 Before delivering any endpoint, verify:
 
 - [ ] Starts with `import uniqorn.*;`, no `package` line, implements `Supplier<Api>`
-- [ ] No forbidden keywords anywhere (check substrings too)
+- [ ] No blocked packages or classes used (see Sandbox Restrictions); framework wrappers instead
 - [ ] `.summary()`, `.description()`, `.returns()` present; every `.parameter()` has a description
 - [ ] Input validation on all parameters that need it
 - [ ] Errors use `Api.error(code, message)`, not raw exceptions
