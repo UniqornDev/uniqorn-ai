@@ -58,16 +58,74 @@ Rules:
 
 | Class | Purpose |
 |-------|---------|
-| `Api` | Define endpoints + static utilities (`Api.env(name)`, `Api.storage(name)`, `Api.database(name)`, `Api.log(level, message)`, `Api.error(code, message)`, `Api.chain(url, method, data)`, `Api.atomic(runnable)`, `Api.defer(runnable)`, `Api.debug(message,...)`, `Api.metrics(name, value)`) |
+| `Api` | Define endpoints + static utilities |
 | `Data` | Universal JSON-like container (value, list, or map) — used everywhere |
-| `JSON` | Create Data instances: `JSON.object()`, `JSON.array()`, `JSON.parse()`, `JSON.stringify()` |
-| `Input` | Validation predicates for parameters (isNotEmpty, isEmail, isInteger, isFile, etc.) |
-| `Http` | Outbound HTTP calls: `Http.get()`, `Http.post()` |
-| `Storage` | Object store (file-like): `Api.storage("name")` then get/put/remove/list/tree |
-| `Database` | SQL queries: `Api.database("name")` then query/tables/columns/schema |
-| `State` | In-memory transient variables: `State.local()` / `State.global()` |
-| `User` | Authenticated user context: name(), hasRole(), isMemberOf() |
+| `JSON` | Create Data instances |
+| `Input` | Validation predicates for parameters |
+| `Http` | Outbound HTTP calls |
+| `Storage` | Object store (file-like), obtained from `Api.storage(name)` |
+| `Database` | SQL queries, obtained from `Api.database(name)` |
+| `State` | In-memory transient variables |
+| `User` | Authenticated user context |
 | `Functions` | Functional interfaces that allow throwing exceptions (used by process, atomic, defer) |
+
+### Signatures
+
+Return types matter — `Storage` has three readers that return different things. `[x]` marks an
+optional argument.
+
+```java
+// Api — static utilities
+Data          Api.env(String name)
+Storage.Type  Api.storage(String name)
+Database.Type Api.database(String name)
+Data          Api.chain(String url [, String method [, Data data [, User.Type user]]])  // throws
+void          Api.error(int code [, String message | Data data | Exception error])  // throws; no return needed after it
+void          Api.atomic(Runnable op)          // also <T> T atomic(Supplier<T> op) — instance-wide lock
+void          Api.defer(Runnable op)           // runs after the response is sent
+void          Api.log(int level, String message, Object... data)
+void          Api.debug(String tag, Object... data)
+void          Api.metrics(String name [, long value])
+
+// Api — endpoint builders, chained on new Api(path, method)
+.summary(String)  .description(String)  .returns(String)
+.parameter(String name [, String description] [, Predicate<Data> validator])
+.allowRole(String...)  .allowGroup(String...)  .allowUser(String...)
+.denyRole(String...)   .denyGroup(String...)   .denyUser(String...)
+.concurrency(int level [, long maxWaitMillis])   // cap parallel executions of this endpoint
+.process(data -> ...)          // Function<Data, Object> — the usual form
+.process(() -> ...)            // Supplier<Object> — when the endpoint takes no input
+.process((data, user) -> ...)  // BiFunction<Data, User.Type, Object> — when you need the caller
+
+// JSON
+Data   JSON.object()      Data JSON.array()
+Data   JSON.parse(String value)        String JSON.stringify(Object value)
+
+// Storage — Api.storage("name")
+void               put(String path, byte[] | String | Data content)
+byte[]             get(String path)         // raw bytes
+String             getString(String path)   // UTF-8 text
+Data               getData(String path)     // parsed JSON  <-- use this for JSON documents
+boolean            containsEntry(String path)      boolean containsPath(String path)
+void               remove(String path)             void clear()
+Collection<String> list(String path)               Collection<String> tree(String path)
+
+// Database — Api.database("name")
+Data query(String sql, Object... params)   // SELECT -> list of row maps, column names lower case
+Data tables()                              Data columns(String table)
+
+// Http — throws Http.Error, which has a public int code
+Data Http.get (String url, Data queryString, Data headers, String method, int timeout)
+Data Http.post(String url, Data body,        Data headers, String method, int timeout)
+
+// State — omit the user for instance-wide values; ttl in ms, -1 = no expiry
+<T> T State.local (String key [, User.Type user] [, Object value [, long ttl]])
+<T> T State.global(String key [, User.Type user] [, Object value [, long ttl]])
+
+// User — from .process((data, user) -> ...)
+String login()   boolean active()   Set<String> roles()   Set<String> groups()
+boolean hasRole(String role)        boolean isMemberOf(String group)
+```
 
 ## Sandbox Restrictions (CRITICAL)
 
@@ -143,24 +201,98 @@ Use the Input class predicates for parameter validation:
 
 ## Storage and Databases
 
-Fetch a declared storage or database object using Api.storage(name) or Api.database(name).
-Run parameterized query: db.query(sql, params) returns a Data list in case of SELECT
-Manage files: store.getData(path), store.put(path, data), store.remove(path), store.tree(path)
+Fetch a declared storage or database with `Api.storage(name)` / `Api.database(name)`, then use
+the signatures above. Always pass query parameters as `?` placeholders, never string
+concatenation.
 
 ## External HTTP calls
 
 If query string (GET):
 ```
-// calls the url with query string parameters, no headers (null), and 30 seconds timeout
-Data response = Http.get("https://example.com", Data.map().put("key", "value"), null, "GET", 30);
+// calls the url with query string parameters, no headers (null), and 30 seconds (30000 ms) timeout
+Data response = Http.get("https://example.com", Data.map().put("key", "value"), null, "GET", 30000);
 ```
 
 If request body (POST, PUT, DELETE,...):
 ```
 // calls the url with x-www-form-urlencoded body
-Data response = Http.post("https://example.com", Data.map().put("key", "value"), null, "PUT", 30);
+Data response = Http.post("https://example.com", Data.map().put("key", "value"), null, "PUT", 30000);
 // calls the url with raw json and additional headers
-Data response = Http.post("https://example.com", Data.of("{\"key\": \"value\"}"), Data.map().put("Content-Type", "application/json"), "POST", 30);
+Data response = Http.post("https://example.com", Data.of("{\"key\": \"value\"}"), Data.map().put("Content-Type", "application/json"), "POST", 30000);
+```
+
+## Worked examples
+
+Reading a storage and returning a list — note `getData()` for JSON documents, and that
+`list()` returns keys:
+
+```java
+import uniqorn.*;
+
+public class NotesList implements Supplier<Api>
+{
+    public Api get()
+    {
+        return new Api("/notes", "GET")
+            .summary("List notes")
+            .description("Returns every note stored under the `notes` storage.")
+            .returns("JSON array of { id, title, body } objects.")
+            .process(data -> {
+                Data out = JSON.array();
+                Storage.Type store = Api.storage("notes");
+                for( String key : store.list("/") )
+                {
+                    Data note = store.getData(key);
+                    out.add(JSON.object()
+                        .put("id", key.replace(".json", ""))
+                        .put("title", note.asString("title"))
+                        .put("body", note.asString("body")));
+                }
+                return out;
+            });
+    }
+}
+```
+
+Calling an upstream service — the error handling here is the expected pattern: catch
+`Http.Error`, translate to `Api.error(...)`, and cap concurrency when the upstream is shared:
+
+```java
+import uniqorn.*;
+
+public class Geocode implements Supplier<Api>
+{
+    public Api get()
+    {
+        return new Api("/geocode", "GET")
+            .summary("Geocode address")
+            .description("Resolves a free-form address to coordinates via the public Nominatim service.")
+            .parameter("query", "Address, place name, or landmark (free-form)", Input.isNotEmpty)
+            .returns("JSON object: { lat: <decimal>, lon: <decimal>, displayName: <string> }. 404 if no result.")
+            .concurrency(2) // don't hammer the upstream
+            .process(data -> {
+                Data params = JSON.object().put("q", data.asString("query")).put("format", "json");
+                Data headers = JSON.object().put("User-Agent", "uniqorn-sample-geocode/1.0");
+                Data response = null;
+                try
+                {
+                    response = Http.get("https://nominatim.openstreetmap.org/search", params, headers, "GET", 10000);
+                }
+                catch( Http.Error e )
+                {
+                    Api.error(502, "Upstream geocoder returned " + e.code);
+                }
+                if( response.isEmpty() || !response.isList() || response.isEmpty(0) )
+                    Api.error(404, "No match for the given query");
+
+                Data hit = response.get(0);
+                return JSON.object()
+                    .put("lat", hit.asDouble("lat"))
+                    .put("lon", hit.asDouble("lon"))
+                    .put("displayName", hit.asString("display_name"));
+            });
+    }
+}
 ```
 
 ## Documentation (mandatory)
@@ -174,11 +306,13 @@ Every endpoint should include all four fields for AI agent discovery:
 ## Common Gotchas
 
 1. **No cross-file imports**: Share data via `State.global()` or `Api.chain(url, method, data)`.
-4. **Storage is not thread-safe**: Use `Api.atomic(runnable)` or `synchronized` for concurrent writes.
-5. **Api.error(code, message) stops execution**: It throws — no `return` needed after it.
-6. **Path parameters must be declared**: `{id}` in path requires `.parameter("id")`.
-7. **Api.atomic() is instance-wide**: Locks ALL endpoints. Keep blocks short.
-9. **Return values**: `null` for empty 200. `JSON.object()` for JSON.
+2. **Storage is not thread-safe**: Use `Api.atomic(runnable)` or `synchronized` for concurrent writes.
+3. **Api.error(code, message) stops execution**: It throws — no `return` needed after it.
+4. **Path parameters must be declared**: `{id}` in path requires `.parameter("id")`.
+5. **Api.atomic() is instance-wide**: Locks ALL endpoints. Keep blocks short.
+6. **Return values**: `null` for empty 200. `JSON.object()` for JSON.
+7. **Storage readers differ**: `get()` is bytes, `getString()` is text, `getData()` is parsed JSON.
+8. **State does not survive a reboot**: use `Api.storage()` or `Api.database()` for anything durable.
 
 ## Quality Checklist
 

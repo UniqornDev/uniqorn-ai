@@ -9,7 +9,7 @@ This repo helps you use AI to build, iterate on, and integrate with Uniqorn endp
 Uniqorn takes the most common thing developers build: REST APIs, and strips away everything that isn't the actual logic.
 
 - **Write. Push. Live.** Uniqorn includes a built-in Git server. Write a Java endpoint, push it, and it compiles, deploys, and serves requests instantly. The push *is* the deployment.
-- **Safe by construction.** Your code runs in a sandbox. It can handle requests, query databases, and return responses. It cannot touch the filesystem, open sockets, or reach into system internals. Dangerous operations are blocked at compile time.
+- **Isolated by the runtime, guided by the API.** Every instance is its own JVM in its own container, so your code is separated from every other tenant by the runtime itself rather than by a policy check. On top of that, the hosted trial and personal plans keep endpoints inside the framework API: on deploy, Uniqorn reads the compiled bytecode and rejects types like `java.io.File` or `java.net.Socket` with `422 Use of restricted type`. That restriction is a guardrail that keeps entry-level code in the intended model, not a security boundary, and team, enterprise, and self-hosted instances do not have it.
 - **Every version, always.** Every push creates a version. Any version can be restored instantly.
 
 No Kubernetes. No Docker. No CI/CD pipeline. No YAML files. Just your code.
@@ -18,9 +18,20 @@ Learn more at [uniqorn.dev](https://uniqorn.dev).
 
 ## What's in this repo
 
-This repo provides three resources for using AI with Uniqorn, depending on your workflow.
+This repo provides four resources for using AI with Uniqorn, depending on your workflow.
 
-### [`AGENT.md`](AGENT.md) For AI agents
+### [`CONTEXT.md`](CONTEXT.md) Start here
+
+The *why and the shape*: what Uniqorn is, the philosophy that predicts what it will and won't
+do, the non-goals, the repo layout, and the honest boundaries (what the deploy-time type
+restriction actually is, and what it is not). `BACKEND.md` teaches an AI the API; this teaches it
+the judgement — which is what keeps it from inventing patterns the platform deliberately
+refuses.
+
+Pair it with `BACKEND.md` for any non-trivial work: together they are under 8k tokens, small
+enough to sit in context permanently.
+
+### [`BACKEND.md`](BACKEND.md) For building the API
 
 A structured instruction file that teaches AI agents how to write Uniqorn endpoints. Use it in two ways:
 
@@ -38,14 +49,22 @@ A structured instruction file that teaches AI agents how to write Uniqorn endpoi
 - **GitHub Copilot** — use as `.github/copilot-instructions.md`
 - **Windsurf** — use as `.windsurfrules`
 
-### [`PROMPT.md`](PROMPT.md) For chat-based AI
+**For chat-based AI** (ChatGPT, Claude, Gemini, etc.), no tooling setup required: paste the contents of `BACKEND.md` into the chat, prefixed with
 
-A ready-to-use prompt you can paste into any chat-style AI (ChatGPT, Claude, Gemini, etc.) to get help writing Uniqorn endpoints. No tooling setup required: just copy, paste, and start describing what you want to build.
+> You are an AI agent with the following definition:
 
-Ideal when you want to:
-- Quickly prototype an endpoint in conversation
-- Get help understanding Uniqorn's API patterns
-- Generate code you'll push manually via Git
+then start describing what you want to build. Ideal for prototyping an endpoint in conversation, understanding the API patterns, or generating code you'll push manually via Git.
+
+### [`FRONTEND.md`](FRONTEND.md) For building the user interface
+
+The companion to `BACKEND.md`, on the browser side. Uniqorn instances serve the Aeonics Frontend
+Framework at `/ae/`: a vanilla, build-free ES-module toolkit — hash router, `Page` class, DOM
+builder, `fetch` wrapper, modals, toasts, translations. This file teaches an AI how to build a
+single page application with it in `www/` and wire it to your endpoints.
+
+Install it exactly like `BACKEND.md` — as a dedicated agent (`.claude/agents/aff.md`), as project
+instructions, or pasted into a chat. Use it alongside `BACKEND.md` when a feature spans both
+sides.
 
 ### [`MCP.md`](MCP.md) For connecting AI agents to your live APIs
 

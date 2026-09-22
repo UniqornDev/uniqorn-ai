@@ -195,5 +195,5 @@ Write good summaries and parameter descriptions — they help AI agents pick the
 
 - MCP access requires authentication. Anonymous requests are rejected.
 - Tool calls run with the permissions of the token owner. Use scoped tokens with minimal privileges.
-- The same sandbox that protects your endpoint code applies: no filesystem access, no reflection, no socket opening.
+- Tool calls are ordinary endpoint invocations, so whatever your endpoint can do, an agent calling it can do. Isolation comes from the per-instance JVM and container, not from the endpoint restriction (which only applies on the trial and personal plans, and only limits which types you may compile against). Treat an MCP-exposed endpoint as a public API and put the authorization on the endpoint itself with `allowRole` / `denyGroup`.
 - Consider creating dedicated API consumer keys for AI agents rather than sharing personal tokens.
